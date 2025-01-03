@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oil Painting Simulator with Color Mixing</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            background: #ccc;
+            padding: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        #toolbar button, #toolbar select {
+            margin: 0 5px;
+            padding: 10px;
+            border: 1px solid #999;
+            border-radius: 5px;
+            cursor: pointer;
+            background: #fff;
+        }
+        #palette {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+            max-width: 800px;
+            justify-content: center;
+        }
+        .color {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid #999;
+            cursor: pointer;
+        }
+        .selected {
+            border: 4px solid #333;
+        }
+        #canvas-container {
+            position: relative;
+            margin: 20px;
+            background: #fff;
+            border: 2px solid #999;
+        }
+        canvas {
+            display: block;
+            border: 1px solid #333;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button onclick="undo()">Undo</button>
+        <button onclick="redo()">Redo</button>
+        <select id="brushSize" onchange="updateBrushSize()">
+            <option value="5">Small</option>
+            <option value="10">Medium</option>
+            <option value="20">Large</option>
+        </select>
+        <button onclick="setEraseMode()">Eraser</button>
+    </div>
+    <div id="palette">
+        <!-- Primary Colors -->
+        <div class="color" style="background: #ff0000;" onclick="selectColor('#ff0000')"></div>
+        <div class="color" style="background: #00ff00;" onclick="selectColor('#00ff00')"></div>
+        <div class="color" style="background: #0000ff;" onclick="selectColor('#0000ff')"></div>
+        <div class="color" style="background: #ffffff;" onclick="selectColor('#ffffff')"></div>
+        <div class="color" style="background: #000000;" onclick="selectColor('#000000')"></div>
+        <div class="color" style="background: #ff00ff;" onclick="selectColor('#ff00ff')"></div> <!-- Magenta -->
+        <div class="color" style="background: #00ffff;" onclick="selectColor('#00ffff')"></div> <!-- Cyan -->
+        <div class="color" style="background: #ffff00;" onclick="selectColor('#ffff00')"></div> <!-- Yellow -->
+        <!-- Skin Tones -->
+        <div class="color" style="background: #ffcc99;" onclick="selectColor('#ffcc99')"></div>
+        <div class="color" style="background: #f2c296;" onclick="selectColor('#f2c296')"></div>
+        <div class="color" style="background: #e6b08b;" onclick="selectColor('#e6b08b')"></div>
+        <div class="color" style="background: #d19a76;" onclick="selectColor('#d19a76')"></div>
+        <div class="color" style="background: #c2876c;" onclick="selectColor('#c2876c')"></div>
+    </div>
+    <div id="canvas-container">
+        <canvas id="paintCanvas" width="800" height="600"></canvas>
+    </div>
+    <script>
+        const canvas = document.getElementById('paintCanvas');
+        const ctx = canvas.getContext('2d');
+        const undoStack = [];
+        const redoStack = [];
+        const colorsUsed = new Set();
+        let isPainting = false;
+        let brushColor = '#000';
+        let brushSize = 5;
+        let isEraser = false;
+        function startPainting(e) {
+            isPainting = true;
+            paint(e);
+        }
+        function endPainting() {
+            isPainting = false;
+            ctx.beginPath();
+            saveState();
+        }
+        function paint(e) {
+            if (!isPainting) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            if (isEraser) {
+                ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
+                return;
+            }
+            const imageData = ctx.getImageData(x, y, brushSize, brushSize);
+            const blend = hexToRgb(brushColor);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const r = imageData.data[i];
+                const g = imageData.data[i + 1];
+                const b = imageData.data[i + 2];
+                const mixed = mixColors({ r, g, b }, blend);
+                imageData.data[i] = mixed.r;
+                imageData.data[i + 1] = mixed.g;
+                imageData.data[i + 2] = mixed.b;
+                imageData.data[i + 3] = 255;
+            }
+            ctx.putImageData(imageData, x, y);
+        }
+        function mixColors(color1, color2) {
+            const r = Math.min((color1.r + color2.r) / 2, 255);
+            const g = Math.min((color1.g + color2.g) / 2, 255);
+            const b = Math.min((color1.b + color2.b) / 2, 255);
+            const hex = rgbToHex(Math.round(r), Math.round(g), Math.round(b));
+            if (!isSimilarColor(hex, 50)) {
+                addColorToPalette(hex);
+            }
+            return { r, g, b };
+        }
+        function isSimilarColor(newColorHex, threshold) {
+            const newRgb = hexToRgb(newColorHex);
+            for (const colorHex of colorsUsed) {
+                const existingRgb = hexToRgb(colorHex);
+                if (Math.abs(existingRgb.r - newRgb.r) < threshold &&
+                    Math.abs(existingRgb.g - newRgb.g) < threshold &&
+                    Math.abs(existingRgb.b - newRgb.b) < threshold) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        function hexToRgb(hex) {
+            const bigint = parseInt(hex.slice(1), 16);
+            return {
+                r: (bigint >> 16) & 255,
+                g: (bigint >> 8) & 255,
+                b: bigint & 255,
+            };
+        }
+        function rgbToHex(r, g, b) {
+            return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+        }
+        function addColorToPalette(hex) {
+            colorsUsed.add(hex);
+            const colorDiv = document.createElement('div');
+            colorDiv.classList.add('color');
+            colorDiv.style.background = hex;
+            colorDiv.onclick = () => selectColor(hex);
+            document.getElementById('palette').appendChild(colorDiv);
+        }
+        function selectColor(color) {
+            brushColor = color;
+            isEraser = false;
+        }
+        function saveState() {
+            undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            redoStack.length = 0;
+        }
+        function undo() {
+            if (undoStack.length > 0) {
+                redoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                ctx.putImageData(undoStack.pop(), 0, 0);
+            }
+        }
+        function redo() {
+            if (redoStack.length > 0) {
+                undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                ctx.putImageData(redoStack.pop(), 0, 0);
+            }
+        }
+        function setEraseMode() {
+            isEraser = true;
+        }
+        function updateBrushSize() {
+            brushSize = document.getElementById('brushSize').value;
+        }
+        canvas.addEventListener('mousedown', startPainting);
+        canvas.addEventListener('mouseup', endPainting);
+        canvas.addEventListener('mousemove', paint);
+    </script>
+</body>
+</html>
